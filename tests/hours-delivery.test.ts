@@ -79,7 +79,7 @@ test("an owner group turn keeps its native source and reply destination in the g
   const account = { apiBase, accountId: "chat", lineUid: "line", threadTrust: "untrusted" };
   const cfg = { agents: { entries: { main: { identity: { name: "Alder" } } } }, channels: { plow: account } };
   let channel: { gateway: { startAccount: (value: object) => Promise<void> } } | undefined;
-  entry.register({ registrationMode: "full", logger: { info() {} }, registerTool() {}, registerHttpRoute() {},
+  entry.register({ registrationMode: "full", on() {}, logger: { info() {} }, registerTool() {}, registerHttpRoute() {},
     registerChannel(value: { plugin: typeof channel }) { channel = value.plugin; },
     runtime: { channel: { routing: { resolveAgentRoute }, session: { resolveStorePath, updateLastRoute }, inbound: {
       buildContext(raw: unknown) { seen = contextSchema.parse(raw); return { SessionKey: seen.route.sessionKey }; },
@@ -117,7 +117,7 @@ function ownerTools(senderIsOwner = true, overrides: object = {}) {
     channels: { plow: { apiBase: "http://fixture", accountId: "chat", lineUid: "line", threadTrust: "untrusted" } },
     plugins: { load: { paths: [new URL("../plugin/", import.meta.url).pathname] }, entries: { plow: { enabled: true } } },
   };
-  entry.register({ registrationMode: "full", logger: { info() {} }, registerChannel() {}, registerHttpRoute() {},
+  entry.register({ registrationMode: "full", on() {}, logger: { info() {} }, registerChannel() {}, registerHttpRoute() {},
     runtime: { channel: { routing: { resolveAgentRoute }, session: { resolveStorePath, updateLastRoute } } },
     registerTool(factory: (context: object) => Tool) {
       const tool = factory({ config: cfg, sessionKey: "agent:main:main", messageChannel: "plow", agentAccountId: "chat",
@@ -302,7 +302,7 @@ test("the shared channel sender rejects tool protocol while preserving ordinary 
   await websocketFixture(t);
   const cfg = { channels: { plow: { apiBase: "http://fixture", accountId: "chat", lineUid: "line" } } };
   let outbound: { sendText(ctx: { cfg: object; to: string; text: string; accountId: string }): Promise<unknown> } | undefined;
-  entry.register({ registrationMode: "full", logger: { info() {} }, registerTool() {}, registerHttpRoute() {},
+  entry.register({ registrationMode: "full", on() {}, logger: { info() {} }, registerTool() {}, registerHttpRoute() {},
     registerChannel(value: { plugin: { outbound: typeof outbound } }) { outbound = value.plugin.outbound; },
   });
   assert.ok(outbound);

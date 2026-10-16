@@ -69,7 +69,7 @@ for (const route of ["owner-group", "owner-dm", "contractor-group"]) {
       let reportTool;
       const sourceBinding = { line_uid: "line", chat_uid: group.uid, handle: owner.provider_key,
         message_uid: "latest-message", created_at: "2026-10-06T00:00:00Z", body: "How can I record hours?" };
-      entry.register({ registrationMode: "full", logger: { info() {} }, registerTool(factory) {
+      entry.register({ registrationMode: "full", on() {}, logger: { info() {} }, registerTool(factory) {
         if (mode !== "private-report") return;
         const tool = factory({ config: cfg, sessionKey: "agent:main:plow:owner-group:" + group.uid,
           messageChannel: "plow", agentAccountId: "chat", nativeChannelId: group.uid,

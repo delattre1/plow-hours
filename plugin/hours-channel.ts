@@ -1,10 +1,10 @@
 import type { OpenClawPluginApi, OpenClawPluginToolContext } from "openclaw/plugin-sdk/core";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { clockSourceSchema, hoursEnabled, hoursLedger, managementSchema, normalizeHandle, type ClockIntent } from "./hours.ts";
+import { clockSourceSchema, hoursEnabled, hoursLedger, managementSchema, normalizeHandle, sameHandle, type ClockIntent } from "./hours.ts";
 import { selfSchema } from "./hours-billing.ts";
 import { flushHoursNotices } from "./hours-notifications.ts";
-import { accepts, findOwnerChat, ownerChat, request, type Account, type Chat, type Message, type Page } from "./transport.ts";
+import { accepts, findOwnerChat, ownerChat, request, type Account, type Chat, type Member, type Message, type Page } from "./transport.ts";
 const ownerToolSchema = z.discriminatedUnion("action", [z.object({ action: z.literal("guide") }).strict(), z.object({ action: z.literal("dashboard") }).strict(), z.object({ action: z.literal("find_group"), handle: z.string().trim().min(1) }).strict(), ...managementSchema.options.filter(option => option.shape.action.value !== "projected")]);
 
 const routingKey = Symbol.for("ours.owner-reply-routing");
@@ -63,9 +63,9 @@ export async function findContractorGroups(account: Account, ownerDm: Chat, hand
   if (listing.has_more) throw new Error("The conversation list is incomplete; cannot safely confirm whether this contractor already has a group.");
   const matches = (chat: Chat) => accepts(account, chat) && !chat.trusted && chat.participants.length === 3
     && chat.participants.filter(p => p.type === "member" && p.role === "owner").length === 1
-    && chat.participants.some(p => p.type === "member" && p.role === "owner" && normalizeHandle(p.provider_key) === normalizeHandle(owner.provider_key))
+    && chat.participants.some(p => p.type === "member" && p.role === "owner" && sameHandle(p.provider_key, owner.provider_key))
     && chat.participants.filter(p => p.type === "member" && p.role !== "owner").length === 1
-    && chat.participants.some(p => p.type === "member" && p.role !== "owner" && handles.has(normalizeHandle(p.provider_key)));
+    && chat.participants.some(p => p.type === "member" && p.role !== "owner" && !!p.provider_key && handles.has(normalizeHandle(p.provider_key)));
   const groups = [];
   for (const candidate of listing.data.filter(matches)) {
     const current = await request<Chat>(account, `/chats/${encodeURIComponent(candidate.uid)}`);
@@ -103,13 +103,13 @@ export async function ownerPrivateConversation(account: Account, group: Chat, me
   const current = await request<Chat>(account, `/chats/${encodeURIComponent(group.uid)}`);
   const sender = message.sender;
   if (sender.type !== "member" || !accepts(account, current) || current.participants.filter(p => p.type === "member" && p.role === "owner").length !== 1
-    || !current.participants.some(p => p.type === "member" && p.role === "owner" && p.uid === sender.uid && normalizeHandle(p.provider_key) === normalizeHandle(sender.provider_key))) {
+    || !current.participants.some(p => p.type === "member" && p.role === "owner" && p.uid === sender.uid && sameHandle(p.provider_key, sender.provider_key))) {
     throw new Error("The group sender is not the verified owner.");
   }
   const destination = await ownerChat(account);
   const chat = await request<Chat>(account, `/chats/${encodeURIComponent(destination.uid)}`);
   const owner = chat.participants.find(p => p.type === "member" && p.role === "owner");
-  if (findOwnerChat(account, [chat]) !== chat || owner?.type !== "member" || normalizeHandle(owner.provider_key) !== normalizeHandle(sender.provider_key)) {
+  if (findOwnerChat(account, [chat]) !== chat || owner?.type !== "member" || !sameHandle(owner.provider_key, sender.provider_key)) {
     throw new Error("The private destination does not belong to this group owner.");
   }
   return { chat, sender: owner };
@@ -125,8 +125,8 @@ export async function authorizeHoursOwner(account: Account, context: OpenClawPlu
   if (source.success && context.sessionKey === "agent:main:plow:owner-group:" + source.data.chat_uid) {
     if (source.data.line_uid !== account.lineUid || source.data.chat_uid !== uid) throw new Error("The owner group source changed.");
     const group = await request<Chat>(account, `/chats/${encodeURIComponent(uid)}`);
-    const sender = group.participants.find(p => p.type === "member" && p.role === "owner"
-      && normalizeHandle(p.provider_key) === normalizeHandle(source.data.handle));
+    const sender = group.participants.find((p): p is Member => p.type === "member" && p.role === "owner"
+      && sameHandle(p.provider_key, source.data.handle));
     if (!sender) throw new Error("The group owner is unavailable.");
     return { chat: (await ownerPrivateConversation(account, group, { sender })).chat };
   }
@@ -178,7 +178,7 @@ export function hoursGroup(account: Account, chat: Chat) {
   const members = chat.participants.filter(p => p.type === "member" && p.role !== "owner");
   const owners = chat.participants.filter(p => p.type === "member" && p.role === "owner");
   if (!accepts(account, chat) || chat.trusted || chat.participants.length !== 3 || owners.length !== 1 || members.length !== 1
-    || members[0]?.type !== "member" || normalizeHandle(members[0].provider_key) !== contractor.handle) return undefined;
+    || members[0]?.type !== "member" || !sameHandle(members[0].provider_key, contractor.handle)) return undefined;
   const owner = owners[0];
   if (!owner || owner.type !== "member") return undefined;
   hoursLedger().assertInstallationLine(account.lineUid);
@@ -259,13 +259,13 @@ export function registerHours(api: OpenClawPluginApi, authorize: (context: OpenC
       if (input.action === "approve_billing") {
         const source = clockSourceSchema.parse(context.toolBindings?.plowHoursOwner);
         if (!context.senderIsOwner || source.line_uid !== account.lineUid || source.chat_uid !== ownerChat.uid
-          || normalizeHandle(source.handle) !== normalizeHandle(owner.provider_key)) throw new Error("Approval requires the current verified owner message in the private DM.");
+          || !sameHandle(source.handle, owner.provider_key)) throw new Error("Approval requires the current verified owner message in the private DM.");
       }
       if (input.action === "contractor") {
         const chat = await request<Chat>(account, `/chats/${encodeURIComponent(input.chat_uid)}`);
         const contractors = chat.participants.filter(p => p.type === "member" && p.role !== "owner");
         if (!accepts(account, chat) || chat.participants.length !== 3 || chat.participants.filter(p => p.type === "member" && p.role === "owner").length !== 1
-          || contractors.length !== 1 || contractors[0]?.type !== "member" || normalizeHandle(contractors[0].provider_key) !== normalizeHandle(input.handle)) {
+          || contractors.length !== 1 || contractors[0]?.type !== "member" || !sameHandle(contractors[0].provider_key, input.handle)) {
           throw new Error("Register the active thread containing the owner, this agent and exactly this contractor.");
         }
         if (chat.trusted) throw new Error("Contractor threads must use normal chat trust. Set trusted=false before registering.");

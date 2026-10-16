@@ -1,4 +1,4 @@
-FROM public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-31029927e09f1a6465bbb3efcbfcc2c8c66a43a6@sha256:42a6d50f15d67c620f68312d067a1a25ad3b007bf51e6b2e6742b8059ffb4798
+FROM public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-ddbaa6bc0f9e071d9411777b91590e755e367d84@sha256:5b0ebf5e33514b09f0f22f1c14424a19b4eb3fc21adfaeb260002f76d362478c
 USER root
 ARG PLOW_HOURS_REVISION
 LABEL org.opencontainers.image.source="https://github.com/EnzoTironi/plow-hours" org.opencontainers.image.revision=$PLOW_HOURS_REVISION co.plow.probe="/opt/plow/probe"

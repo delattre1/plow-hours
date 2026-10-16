@@ -60,6 +60,12 @@ export function normalizeHandle(handle: string): string {
   return /^\+\d{10,15}$/.test(compact) ? compact : handle.trim().toLowerCase();
 }
 
+// Plow rosters can omit a member's handle. A missing handle never matches anyone, so
+// every owner and contractor check that uses this fails closed.
+export function sameHandle(a: string | null | undefined, b: string | null | undefined): boolean {
+  return !!a?.trim() && !!b?.trim() && normalizeHandle(a) === normalizeHandle(b);
+}
+
 export function clockCommand(body: string) {
   const match = body.trim().match(/^(comecei|start|\/in|parei|stop|\/out|ponto|\/hours)(?:\s+([\s\S]*))?$/i);
   if (!match) return undefined;
