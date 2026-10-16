@@ -49,10 +49,18 @@ function wrap(target) {
 wrap(fs);
 wrap(fs.promises);
 
+// The ledger opens SQLite by absolute path. Code that reaches node:sqlite through
+// process.getBuiltinModule gets the builtin's own export, so that is replaced too.
+const sqlite = process.getBuiltinModule("node:sqlite");
+const { DatabaseSync } = sqlite;
+sqlite.DatabaseSync = class extends DatabaseSync {
+  constructor(path, ...rest) { super(mapArg(path), ...rest); }
+};
+
 module.syncBuiltinESMExports();
 
-// node:sqlite's named exports are not live bindings, so its importers get a subclass
-// that maps the database path instead.
+// node:sqlite's named ESM exports are not live bindings, so ESM importers get a
+// stand-in module that exports the mapping class instead.
 const SQLITE = new URL("./local-sqlite.mjs", import.meta.url).href;
 module.registerHooks({
   resolve(specifier, context, nextResolve) {

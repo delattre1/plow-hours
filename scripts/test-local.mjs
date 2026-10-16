@@ -12,9 +12,12 @@
 // Requires Node >= 24.16 (CI uses 26), `npm ci`, and git. The base source comes from
 // OURS_BASE_SRC (a clone of plow-pbc/plow-openclaw-agent) or is cloned once into
 // .cache/. What this does not cover: the base image's OS packages, agentsview, the
-// Agent Index client, and the offline gateway probe. Those still need `docker build`.
+// Agent Index client and the offline gateway probe (/opt/plow/probe). The probe needs the
+// real image: OpenClaw also writes absolute paths inside SQL, which no path map reaches.
+// OpenClaw itself, as on any host, keeps empty lock files in /tmp/openclaw-state-locks-<uid>
+// and a log in /tmp/openclaw; those paths are hardcoded there.
 import { execFileSync, spawnSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -69,7 +72,8 @@ function run(label, command, argv, env) {
 const dockerfile = await readFile(join(repo, "Dockerfile"), "utf8");
 const sha = pinnedBase(dockerfile);
 const source = baseSource(sha);
-const root = await mkdtemp(join(tmpdir(), "ours-local-"));
+// Real path: macOS tmpdir sits behind the /var -> /private/var symlink.
+const root = await realpath(await mkdtemp(join(tmpdir(), "ours-local-")));
 const plow = join(root, "opt/plow");
 try {
   console.log(`base ${sha} from ${source}\nroot ${root}`);
@@ -109,15 +113,14 @@ try {
 
   // CI: tsc against the base tsconfig, then every test with the runtime linked in.
   if (typecheck) run("typecheck", process.execPath, [join(repo, "node_modules/typescript/bin/tsc"), "--noEmit", "-p", join(plow, "tsconfig.json")], env);
+  const childEnv = { ...env, NODE_OPTIONS: `--import=${join(repo, "scripts", "local-root.mjs")}` };
   await cp(join(repo, "tests"), join(plow, "tests"), { recursive: true });
   await mkdir(join(plow, "plugin/node_modules"), { recursive: true });
   await symlink(join(root, "app"), join(plow, "plugin/node_modules/openclaw"));
   const tests = selected.length
     ? selected.map(path => join(plow, "tests", path.replace(/^tests\//, "")))
     : (await readdir(join(plow, "tests"))).filter(name => name.endsWith(".test.ts")).sort().map(name => join(plow, "tests", name));
-  run(`node --test (${tests.length} files)`, process.execPath,
-    [...preload, "--test", "--test-timeout=180000", ...tests],
-    { ...env, NODE_OPTIONS: `--import=${join(repo, "scripts", "local-root.mjs")}` });
+  run(`node --test (${tests.length} files)`, process.execPath, [...preload, "--test", "--test-timeout=180000", ...tests], childEnv);
 } finally {
   if (keep) console.log(`kept ${root}`);
   else await rm(root, { recursive: true, force: true });
