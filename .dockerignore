@@ -7,3 +7,4 @@ evals
 tests
 *.log
 .DS_Store
+.cache
