@@ -363,8 +363,10 @@ before a release.
    commits since the current pin, especially `plugin/index.ts`, `plugin/transport.ts`,
    `boot/main.ts`, `boot/config.ts` and `prompt/AGENTS.md`.
 2. Update `FROM` with the tag and its multi-arch index digest.
-3. Copy that commit's `prompt/AGENTS.md` to `tests/fixtures/base-AGENTS.md` and update
-   `BASE_COMMIT` and `BASE_FIXTURE_SHA256` in the contract test.
+3. Copy that commit's `prompt/AGENTS.md` and `boot/main.ts` to `tests/fixtures/base-AGENTS.md`
+   and `tests/fixtures/base-main.ts.txt`, and update `BASE_COMMIT`, `BASE_FIXTURE_SHA256` and
+   `BASE_MAIN_SHA256` in the contract test. A new base boot step fails the parity test until
+   `boot/preboot.ts` has it.
 4. Run `npm run check`. `install.mjs` fails loudly on any patch anchor the base moved;
    re-anchor it to the new code rather than loosening the match.
 5. Run the image checks and the conversation evaluator below, then the manual

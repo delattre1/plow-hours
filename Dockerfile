@@ -3,7 +3,7 @@
 # code under it. To bump: pick a base-<sha> tag that exists, read its commits for changes
 # to plugin/index.ts, plugin/transport.ts, boot/main.ts and prompt/AGENTS.md (install.mjs
 # patches the first two and fails the build loudly if an anchor moved), refresh
-# tests/fixtures/base-AGENTS.md and BASE_COMMIT, then run `npm run check`.
+# tests/fixtures/base-AGENTS.md, base-main.ts.txt and their hashes, then run `npm run check`.
 FROM public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-ddbaa6bc0f9e071d9411777b91590e755e367d84@sha256:5b0ebf5e33514b09f0f22f1c14424a19b4eb3fc21adfaeb260002f76d362478c
 USER root
 ARG PLOW_HOURS_REVISION

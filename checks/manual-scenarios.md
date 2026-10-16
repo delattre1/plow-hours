@@ -31,6 +31,9 @@ docker compose logs -f agent                                    # wait for "plow
    - Check: the group appears on both phones with exactly three participants.
 3. [ ] **Registration receipt.** Expect a confirmation only after the saved receipt.
    Asking "Is Alex registered?" gets a yes that matches the dashboard.
+   - Expect (#30): right after registration the group gets one how-to-log-time message
+     in Alex's language, with /in and /out, promising nothing further. Changing Alex's
+     rate afterwards sends no second one.
 
 ## 2. A workday in the contractor's group
 
@@ -58,29 +61,50 @@ docker compose logs -f agent                                    # wait for "plow
 12. [ ] **Report asked in the group.** As the owner in Alex's group: "Send me the dashboard."
     - Expect: a short "I'll reply privately" in the group; the link arrives only in the
       owner's DM. The group never shows the URL.
-13. [ ] **Correction.** In the owner DM: "Alex started at 9:10, not 9:30, yesterday."
+13. [ ] **Routed context is never "fake" (#32).** As the owner in Alex's group, send
+    "elm are you there?" and a screenshot.
+    - Expect: an answer or silence. No reply anywhere calls the message, its context or
+      its metadata fake, pasted or injected.
+14. [ ] **Voided is not "never clocked in" (#32).** Void Alex's entry from the DM, then ask
+    "Has Alex clocked in today?"
+    - Expect: the voided entry is mentioned with the option to restore it.
+15. [ ] **Correction.** In the owner DM: "Alex started at 9:10, not 9:30, yesterday."
     - Expect: the same entry is corrected with a reason; nothing is voided and recreated,
       and Alex is not asked to clock again.
 
 ## 4. Paperwork and billing
 
-14. [ ] **Payment details before billing.** As Alex: send a Pix key and beneficiary.
+16. [ ] **Payment details before billing.** As Alex: send a Pix key and beneficiary.
     - Expect: saved and confirmed without repeating the key.
-15. [ ] **Request paperwork.** In the owner DM, request the period's invoice for Alex (BR).
+17. [ ] **Request paperwork.** In the owner DM, request the period's invoice for Alex (BR).
     - Expect: the paperwork request lands in Alex's group, not the DM.
-16. [ ] **Close and review.** Close the period, then have Alex send a nota fiscal link and
+18. [ ] **Close and review.** Close the period, then have Alex send a nota fiscal link and
     amount that match.
     - Expect: "ready for your review" in the owner DM; the amount matches the closed value.
-17. [ ] **Approval is exact.** Approve in the owner DM. Then have Alex change the Pix key.
+19. [ ] **Approval is exact.** Approve in the owner DM. Then have Alex change the Pix key.
     - Expect: the approval is revoked and the owner gets a private alert. Nothing is
       paid or marked paid at any point.
 
 ## 5. Recovery
 
-18. [ ] **Restart mid-day.** With a clock open, run `docker compose restart agent`, then
+20. [ ] **Restart mid-day.** With a clock open, run `docker compose restart agent`, then
     have Alex send "Finished for today."
     - Expect: the stop closes the original session; no duplicate entry or second receipt.
-19. [ ] **Backups.** `docker compose exec agent ls /var/lib/plow/plow-hours/backups` shows a
+21. [ ] **Backups.** `docker compose exec agent ls /var/lib/plow/plow-hours/backups` shows a
     fresh encrypted snapshot.
+
+## 6. On its own (run across one day)
+
+22. [ ] **Forgotten clock.** Start a clock in the morning and leave it open.
+    - Expect: ten hours later, in daytime for the contractor, one nudge in their group
+      with the start time, how to close it, and to reply with the real stop time.
+      Nothing more for that session, even after `docker compose restart agent`.
+23. [ ] **Evening summary.** On a day with recorded work, wait until 19:00 São Paulo time.
+    - Expect: one message in the owner DM with each contractor's hours and USD value,
+      open clocks, items waiting on the owner, and, the first time only, how to turn it
+      off. A day with no work sends nothing.
+24. [ ] **Owner control.** In the DM: "stop the daily summary", then "send it at 7 pm New
+    York time instead".
+    - Expect: the summary stops, then resumes at 19:00 New York time.
 
 Record the image digest, the date and the line used at the top of the release notes.

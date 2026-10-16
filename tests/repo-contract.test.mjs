@@ -82,3 +82,20 @@ test("credentials and local state never enter Git or the Docker build context", 
   const tracked = execFileSync("git", ["ls-files"], { cwd: new URL("..", import.meta.url) }).toString().split("\n");
   assert.ok(!tracked.some(path => /(^|\/)(plow-credentials|\.env)$/.test(path)), "No credential file is tracked");
 });
+
+// boot/preboot.ts replaces the base's boot/main.ts, so it must keep every base boot step.
+// tests/fixtures/base-main.ts.txt is that file at BASE_COMMIT; a bump refreshes it.
+const BASE_MAIN_SHA256 = "4fed0ae4df0ccbcdbecbe05346fbd6c8b6d93468e7729d7ba9acfdc18226e231";
+const BOOT_DEVIATIONS = new Map([
+  ['await syncConfig(config, "/var/lib/plow/openclaw.json", "/etc/plow/openclaw");', "same paths, named CONFIG and INCLUDES"],
+  ["console.error(`plow-boot: parked: ${error instanceof Error ? error.message : String(error)}`);", "same parked message, via message()"],
+]);
+
+test("Ours' boot keeps every step of the base boot it replaces", () => {
+  const baseMain = read("tests/fixtures/base-main.ts.txt");
+  assert.equal(createHash("sha256").update(baseMain).digest("hex"), BASE_MAIN_SHA256, "The fixture is a verbatim copy of the base boot/main.ts");
+  const preboot = read("boot/preboot.ts");
+  const steps = baseMain.split("\n").map(line => line.trim()).filter(line => line && !line.startsWith("import ") && !line.startsWith("//"));
+  for (const step of steps) assert.ok(preboot.includes(step) || BOOT_DEVIATIONS.has(step), `boot/preboot.ts lost a base boot step: ${step}`);
+  assert.ok(preboot.includes("await syncConfig(config, CONFIG, INCLUDES);") && preboot.includes('const CONFIG = "/var/lib/plow/openclaw.json";'));
+});
