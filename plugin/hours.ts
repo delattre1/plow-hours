@@ -128,6 +128,11 @@ const RECEIPTS = {
     ownerClosed: "O dono revisou e encerrou esta pendência; nenhuma hora foi acrescentada por esta mensagem.",
     ownerConfirmed: (start: string, finish: string, total: string) => `O dono confirmou o início às ${start}. Ponto encerrado às ${finish}. Total: ${total}.`,
     voided: "Esse registro foi anulado pelo dono; não conta nas horas.",
+    welcome: (name: string, owner: string) => `Oi, ${name}! Aqui você registra suas horas para ${owner}. É só me avisar enquanto trabalha:
+• "Começando agora" abre seu ponto.
+• "Vou fazer uma pausa" pausa o ponto; pausas não contam.
+• "Terminei por hoje" fecha o ponto e te mostra o total.
+Conte no que está trabalhando quando quiser. Pergunte "quantas horas essa semana?" a qualquer momento. Atalhos: /in e /out.`,
   },
   en: {
     lateStart: "This start arrived late and comes before the clock that is already running.",
@@ -155,6 +160,11 @@ const RECEIPTS = {
     ownerClosed: "The owner reviewed and closed this item; no hours were added from this message.",
     ownerConfirmed: (start: string, finish: string, total: string) => `The owner confirmed the start at ${start}. Clock stopped at ${finish}. Total: ${total}.`,
     voided: "The owner voided this record; it doesn't count toward hours.",
+    welcome: (name: string, owner: string) => `Hi ${name}! This group is where you log your hours for ${owner}. Just tell me as you work:
+• "Starting work now" opens your clock.
+• "Taking a break" pauses it; breaks don't count.
+• "Finished for today" closes it and tells you the total.
+Tell me what you're working on whenever you like. Ask "How many hours this week?" anytime. Shortcuts: /in and /out.`,
   },
 } satisfies Record<Language, Record<string, string | ((...args: never[]) => string)>>;
 type ConflictReason = "lateStart" | "confirmBeforeStart" | "overlaps" | "afterClose" | "stopCrosses";
@@ -229,6 +239,12 @@ export class HoursLedger {
       if (!this.db.prepare("PRAGMA table_info(owner_notices)").all().some(row => row.name === "body"))
         this.db.exec("ALTER TABLE owner_notices ADD COLUMN body TEXT NOT NULL DEFAULT ''");
       this.db.exec("DROP INDEX IF EXISTS one_open_entry; CREATE UNIQUE INDEX one_open_entry ON entries(contractor_id) WHERE end_ms IS NULL AND voided=0;");
+      // Each contractor group gets one how-to-log-time message, at most once (#30). Groups
+      // registered before this table existed were already set up and are never messaged.
+      const hadWelcomes = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='group_welcomes'").get();
+      this.db.exec(`CREATE TABLE IF NOT EXISTS group_welcomes (chat_uid TEXT PRIMARY KEY, contractor_id TEXT NOT NULL REFERENCES contractors(id),
+        state TEXT NOT NULL CHECK(state IN ('existing','pending','sending','accepted','rejected','unknown')), message_uid TEXT)`);
+      if (!hadWelcomes) this.db.exec("INSERT OR IGNORE INTO group_welcomes(chat_uid, contractor_id, state) SELECT chat_uid, id, 'existing' FROM contractors");
       this.db.exec("UPDATE clock_inbox SET source_json=json_set(source_json, '$.body', '') WHERE complete=1;");
       // Old work-note receipts must not consume a start/stop from the same message.
       this.db.exec(`UPDATE receipts SET source='note:' || source
@@ -261,6 +277,28 @@ export class HoursLedger {
   assertInstallationLine(lineUid: string) {
     const current = this.db.prepare("SELECT line_uid FROM installation WHERE singleton=1").get();
     if (!current || current.line_uid !== lineUid) throw new Error("This hours volume must boot with its authenticated Plow owner and line before accepting messages.");
+  }
+
+  /** The group's how-to-log-time text if its single welcome is still unsent; claiming it
+   * means no later call will send it again, whatever happens to this attempt. */
+  claimWelcome(chatUid: string, ownerName: string | undefined): string | undefined {
+    return this.transaction(() => {
+      const row = this.db.prepare("SELECT contractor_id FROM group_welcomes WHERE chat_uid=? AND state='pending'").get(chatUid);
+      if (!row) return undefined;
+      const contractor = this.contractor(z.object({ contractor_id: id }).parse(row).contractor_id);
+      this.db.prepare("UPDATE group_welcomes SET state='sending' WHERE chat_uid=?").run(chatUid);
+      const owner = ownerName?.trim() || (contractor.language === "pt" ? "o dono" : "the owner");
+      return RECEIPTS[contractor.language].welcome(contractor.name, owner);
+    });
+  }
+
+  welcomeState(chatUid: string) {
+    const row = this.db.prepare("SELECT state FROM group_welcomes WHERE chat_uid=?").get(chatUid);
+    return row ? z.object({ state: z.enum(["existing", "pending", "sending", "accepted", "rejected", "unknown"]) }).parse(row).state : undefined;
+  }
+
+  finishWelcome(chatUid: string, state: "accepted" | "rejected" | "unknown", messageUid?: string) {
+    this.db.prepare("UPDATE group_welcomes SET state=?, message_uid=? WHERE chat_uid=? AND state='sending'").run(state, messageUid ?? null, chatUid);
   }
 
   groupContractor(chatUid: string) {
@@ -732,6 +770,7 @@ export class HoursLedger {
           this.db.prepare(`INSERT INTO contractors(id, name, handle, chat_uid, timezone, rate_cents, language) VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET name=excluded.name, timezone=excluded.timezone, rate_cents=excluded.rate_cents, language=excluded.language, active=1, revision=contractors.revision+1`)
             .run(input.id, input.name, handle, input.chat_uid, input.timezone, input.rate_cents, input.language);
+          if (!before) this.db.prepare("INSERT OR IGNORE INTO group_welcomes(chat_uid, contractor_id, state) VALUES (?, ?, 'pending')").run(input.chat_uid, input.id);
           this.audit(source, input.action, before, this.contractor(input.id));
           return { contractor_id: input.id, registered: true };
         }

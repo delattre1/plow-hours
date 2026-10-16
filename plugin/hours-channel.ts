@@ -4,7 +4,7 @@ import { z } from "zod";
 import { clockSourceSchema, hoursEnabled, hoursLedger, managementSchema, normalizeHandle, sameHandle, type ClockIntent } from "./hours.ts";
 import { selfSchema } from "./hours-billing.ts";
 import { flushHoursNotices } from "./hours-notifications.ts";
-import { accepts, findOwnerChat, ownerChat, request, type Account, type Chat, type Member, type Message, type Page } from "./transport.ts";
+import { accepts, findOwnerChat, HttpError, ownerChat, request, type Account, type Chat, type Member, type Message, type Page } from "./transport.ts";
 const ownerToolSchema = z.discriminatedUnion("action", [z.object({ action: z.literal("guide") }).strict(), z.object({ action: z.literal("dashboard") }).strict(), z.object({ action: z.literal("find_group"), handle: z.string().trim().min(1) }).strict(), ...managementSchema.options.filter(option => option.shape.action.value !== "projected")]);
 
 const routingKey = Symbol.for("ours.owner-reply-routing");
@@ -227,6 +227,32 @@ async function hoursDashboard(account: Account) {
   return { url: url.href, openclaw_url: openclaw.href, view: "hours", owner_only: true, read_only: true };
 }
 
+// A new contractor's first need is how to log time, so registration posts that from the
+// ledger's own text instead of leaving it to the model's introduction (#30). One attempt
+// per group, ever: an uncertain delivery is recorded and never sent again automatically.
+async function welcomeContractor(account: Account, chatUid: string, ownerName: string | undefined) {
+  const text = hoursLedger().claimWelcome(chatUid, ownerName);
+  if (text === undefined) {
+    const state = hoursLedger().welcomeState(chatUid);
+    // Only the first attempt is ever made; later calls report what that attempt recorded.
+    if (state === "rejected" || state === "unknown" || state === "sending") return { status: state === "rejected" ? "rejected" : "unknown",
+      note: "The earlier how-to-log-time message was not confirmed and is never resent automatically. The contractor can still start by texting the group." };
+    return { status: "already_sent", note: "This group already has its how-to-log-time message, or was set up before it existed. Send nothing more about it." };
+  }
+  try {
+    const sent = z.object({ uid: z.string().trim().min(1) })
+      .parse(await request<unknown>(account, `/chats/${encodeURIComponent(chatUid)}/messages`, { body: text, attachment_uids: [] }));
+    hoursLedger().finishWelcome(chatUid, "accepted", sent.uid);
+    return { status: "accepted", note: "Ours posted the how-to-log-time message in the group, in the contractor's language. Do not repeat it. Plow accepted it; delivery is unconfirmed." };
+  } catch (error) {
+    const status = error instanceof HttpError && error.status < 500 ? "rejected" : "unknown";
+    hoursLedger().finishWelcome(chatUid, status);
+    return { status, note: status === "rejected"
+      ? "Plow rejected the how-to-log-time message. Tell the owner the contractor has no instructions yet; they can still start by texting the group."
+      : "The how-to-log-time message may not have arrived and will not be resent automatically. Tell the owner; the contractor can still start by texting the group." };
+  }
+}
+
 export function registerHours(api: OpenClawPluginApi, authorize: (context: OpenClawPluginToolContext) => Promise<{ account: Account; chat: Chat }>) {
   if (!hoursEnabled()) return;
   api.registerTool(context => ({
@@ -274,11 +300,12 @@ export function registerHours(api: OpenClawPluginApi, authorize: (context: OpenC
       const recorded = hoursLedger().manage(input, JSON.stringify([ownerChat.uid, _id]));
       const details = input.action === "contractor"
         ? { ...z.object({ contractor_id: z.string(), registered: z.literal(true) }).parse(recorded), chat_uid: input.chat_uid,
+          contractor_welcome: await welcomeContractor(account, input.chat_uid, owner.display_name),
           other_active_registrations: hoursLedger().report()
             .filter(r => r.contractor.id !== input.id && r.contractor.active && r.contractor.name.toLowerCase() === input.name.toLowerCase())
             .map(({ contractor, demands }) => ({ contractor, demands })),
           timezone_label: input.timezone === "America/Sao_Paulo" ? "São Paulo" : input.timezone.slice(input.timezone.lastIndexOf("/") + 1).replaceAll("_", " "),
-          delivery_status: "unconfirmed", confirmation_instruction: "Say registration is complete and delivery is unconfirmed. Use timezone_label for the city, not the raw timezone identifier. The dashboard is a read-only owner view; workers record time by messaging their registered group. Never say the worker received the introduction: there is no Apple delivery receipt.",
+          delivery_status: "unconfirmed", confirmation_instruction: "Say registration is complete and delivery is unconfirmed. If contractor_welcome.status is rejected or unknown, say Ours could not confirm that the contractor got the how-to-log-time message. Use timezone_label for the city, not the raw timezone identifier. The dashboard is a read-only owner view; workers record time by messaging their registered group. Never say the worker received the introduction: there is no Apple delivery receipt.",
           roster_verified: true, participants: "owner, registered contractor, this agent", trusted: false,
           verification_scope: "Plow participants and permissions only. iMessage availability, group visibility and message delivery have not been checked.",
           ...await hoursDashboard(account).catch(() => ({ dashboard_unavailable: true })) }

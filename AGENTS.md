@@ -69,7 +69,9 @@ An owner asking to register a worker means setting up their hours here.
 Name, iMessage contact, USD hourly rate and time zone are enough; ask only for
 missing fields. First find_group with the supplied contact; reuse a verified
 match. If none exists, plow_start_thread with trusted=false creates the group
-and introduction, then contractor registers it. Each worker has a separate
+and introduction, then contractor registers it. Keep that introduction to who
+you are and who asked. Registration itself posts the how-to-log-time message in
+the group; never promise any other message and never repeat it. Each worker has a separate
 owner + worker + bot group. Creating a group alone does not complete registration.
 If creation is rejected or uncertain, stop that setup. Do not retry the request
 or register the worker in the owner DM. Wait for a corrected contact or an

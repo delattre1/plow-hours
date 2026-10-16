@@ -4,7 +4,7 @@ import { z } from "zod";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { resolveStorePath, updateLastRoute } from "openclaw/plugin-sdk/session-store-runtime";
 import entry from "./ours-entry.ts";
-import { hoursLedger } from "../plugin/hours.ts";
+import { HoursLedger, hoursLedger } from "../plugin/hours.ts";
 import { clearOwnerAnswer, ownerAnswerIsPrivate, ownerAnswerWasSent, findContractorGroups, ownerPrivateConversation } from "../plugin/hours-channel.ts";
 import { DeliveryUnknownError, HttpError } from "../plugin/transport.ts";
 import { websocketFixture } from "./ws-fixture.ts";
@@ -572,4 +572,78 @@ test("owner model cannot acknowledge external publication without a writing inte
     action: "projected", contractor_id: "alex", target: "wiki", revision: 1,
   }));
   assert.deepEqual(hoursLedger().report(), before);
+});
+
+test("a new contractor's group gets one how-to-log-time message in their language, never resent (#30)", async t => {
+  await websocketFixture(t);
+  const previous = process.env.PLOW_HOURS;
+  process.env.PLOW_HOURS = "1";
+  t.after(() => { if (previous === undefined) delete process.env.PLOW_HOURS; else process.env.PLOW_HOURS = previous; });
+  const ptWorker = { ...worker, uid: "bia", display_name: "Bia", provider_key: "bia@example.test" };
+  const ptGroup = { ...group, uid: "cht_bia", participants: [owner, ptWorker, self] };
+  const failWorker = { ...worker, uid: "cid", display_name: "Cid", provider_key: "cid@example.test" };
+  const failGroup = { ...group, uid: "cht_cid", participants: [owner, failWorker, self] };
+  const posts: { chat: string; body: string }[] = [];
+  t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit = {}) => {
+    const path = new URL(url).pathname;
+    const posted = path.match(/^\/v1\/chats\/([^/]+)\/messages$/);
+    if (posted && init.method === "POST") {
+      posts.push({ chat: posted[1]!, body: JSON.parse(String(init.body)).body });
+      return posted[1] === failGroup.uid ? new Response("unavailable", { status: 503 }) : Response.json({ uid: `msg_${posts.length}` });
+    }
+    for (const chat of [home, group, ptGroup, failGroup]) if (path.endsWith(`/${chat.uid}`)) return Response.json(chat);
+    if (path.endsWith("/agents/me")) return Response.json({ agent: { web_url: "https://hours.example.test" } });
+    assert.fail("Unexpected provider request: " + url);
+  });
+  const tool = ownerTools()("plow_hours");
+  const welcome = z.object({ details: z.object({ contractor_welcome: z.object({ status: z.string(), note: z.string() }) }).passthrough() });
+  const register = async (id: string, args: object) => welcome.parse(await tool.execute(id, { action: "contractor", timezone: "America/New_York", rate_cents: 2000, ...args })).details.contractor_welcome;
+
+  const alex = { id: "alex", name: "Alex", handle: worker.provider_key, chat_uid: group.uid, language: "en" };
+  assert.equal((await register("r1", alex)).status, "accepted");
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0]!.chat, group.uid, "The welcome goes to the contractor's group, never the owner DM");
+  assert.match(posts[0]!.body, /Alex/); assert.match(posts[0]!.body, /Dane/);
+  assert.match(posts[0]!.body, /\/in\b/); assert.match(posts[0]!.body, /\/out\b/);
+  assert.doesNotMatch(posts[0]!.body, /shortly|later|soon/i, "It promises no further message");
+
+  assert.equal((await register("r1", alex)).status, "already_sent", "A replayed call sends nothing");
+  assert.equal((await register("r2", { ...alex, rate_cents: 2500 })).status, "already_sent", "Updating a registration sends nothing");
+  assert.equal(posts.length, 1);
+
+  assert.equal((await register("r3", { id: "bia", name: "Bia", handle: ptWorker.provider_key, chat_uid: ptGroup.uid, language: "pt" })).status, "accepted");
+  assert.match(posts[1]!.body, /Bia/); assert.match(posts[1]!.body, /horas/); assert.match(posts[1]!.body, /\/in\b/);
+
+  assert.equal((await register("r4", { id: "cid", name: "Cid", handle: failWorker.provider_key, chat_uid: failGroup.uid })).status, "unknown");
+  assert.equal((await register("r5", { id: "cid", name: "Cid", handle: failWorker.provider_key, chat_uid: failGroup.uid, rate_cents: 3000 })).status, "unknown",
+    "An uncertain welcome is never sent again automatically");
+  assert.equal(posts.filter(post => post.chat === failGroup.uid).length, 1);
+});
+
+test("contractors registered before the welcome existed are never welcomed after an upgrade (#30)", async t => {
+  await websocketFixture(t);
+  const previous = process.env.PLOW_HOURS;
+  process.env.PLOW_HOURS = "1";
+  t.after(() => { if (previous === undefined) delete process.env.PLOW_HOURS; else process.env.PLOW_HOURS = previous; });
+  // A volume from before this release: a registered contractor and no welcome records.
+  const directory = `${process.env.OPENCLAW_STATE_DIR}/plow-hours`;
+  const legacy = new HoursLedger(directory);
+  legacy.manage({ action: "contractor", id: "alex", name: "Alex", handle: worker.provider_key, chat_uid: group.uid, timezone: "America/New_York", rate_cents: 2000 }, "pre-upgrade");
+  legacy.close();
+  const { DatabaseSync } = await import("node:sqlite");
+  const raw = new DatabaseSync(`${directory}/hours.sqlite`);
+  raw.exec("DROP TABLE group_welcomes");
+  raw.close();
+  const posts: string[] = [];
+  t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit = {}) => {
+    if (init.method === "POST") { posts.push(url); return Response.json({ uid: "msg" }); }
+    if (url.endsWith(home.uid)) return Response.json(home);
+    if (url.endsWith(group.uid)) return Response.json(group);
+    if (url.endsWith("/agents/me")) return Response.json({ agent: { web_url: "https://hours.example.test" } });
+    assert.fail("Unexpected provider request: " + url);
+  });
+  z.object({ details: z.object({ contractor_welcome: z.object({ status: z.literal("already_sent") }) }).passthrough() })
+    .parse(await ownerTools()("plow_hours").execute("after-upgrade", { action: "contractor", id: "alex", name: "Alex", handle: worker.provider_key, chat_uid: group.uid, timezone: "America/New_York", rate_cents: 2600 }));
+  assert.deepEqual(posts, [], "An upgraded volume never welcomes a contractor it already had");
+  assert.equal(hoursLedger().report("alex")[0]?.contractor.rate_cents, 2600, "The update itself still applies");
 });
