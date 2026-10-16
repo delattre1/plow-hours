@@ -155,15 +155,10 @@ test("the heartbeat nudges in the contractor's own group and summarises in the o
   assert.equal(calls(), before, "A heartbeat with nothing due makes no request");
 });
 
-test("a changed roster or the kill switch sends no nudge, and an uncertain send is never repeated", async t => {
+test("a changed roster gets no nudge, and a refused nudge is not retried", async t => {
   const crowded = { ...group, participants: [owner, ana, { ...ana, uid: "eve", display_name: "Eve", provider_key: "eve@example.test" }, self] };
   const { posts } = await heartbeatFixture(t, crowded);
   const morning = Date.parse("2026-10-02T18:40:00-03:00");
-  process.env.PLOW_HOURS_PROACTIVE = "0";
-  t.after(() => { delete process.env.PLOW_HOURS_PROACTIVE; });
-  await runHoursSchedule(account, morning);
-  assert.equal(posts.length, 0, "PLOW_HOURS_PROACTIVE=0 turns the scheduler off");
-  delete process.env.PLOW_HOURS_PROACTIVE;
   await runHoursSchedule(account, morning);
   assert.equal(posts.length, 0, "Nobody else in the group may see the contractor's clock");
   await runHoursSchedule(account, morning + 60_000);
@@ -200,4 +195,16 @@ test("the owner tool offers the summary settings and never the unreachable sheet
   assert.ok(actions.length > 10, JSON.stringify(parameters).slice(0, 300));
   assert.ok(actions.includes("settings") && actions.includes("contractor"));
   assert.ok(!actions.includes("link_sheet") && !actions.includes("projected"));
+});
+
+test("PLOW_HOURS_PROACTIVE=0 stops a nudge that would otherwise go out", async t => {
+  const { posts } = await heartbeatFixture(t);
+  const due = Date.parse("2026-10-02T18:40:00-03:00");
+  process.env.PLOW_HOURS_PROACTIVE = "0";
+  t.after(() => { delete process.env.PLOW_HOURS_PROACTIVE; });
+  await runHoursSchedule(account, due);
+  assert.equal(posts.length, 0, "The kill switch sends nothing");
+  delete process.env.PLOW_HOURS_PROACTIVE;
+  await runHoursSchedule(account, due);
+  assert.equal(posts.length, 1, "The same nudge goes out once the switch is off");
 });

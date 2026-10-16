@@ -665,3 +665,21 @@ test("a roster member without a handle matches no one: owner and contractor chec
   });
   await assert.rejects(() => ownerPrivateConversation(account, hiddenOwnerGroup as never, { sender: owner } as never), /not the verified owner/);
 });
+
+test("a group set up before the welcome existed is never welcomed, even through a new registration in it (#30)", async t => {
+  await websocketFixture(t);
+  const directory = `${process.env.OPENCLAW_STATE_DIR}/plow-hours`;
+  const legacy = new HoursLedger(directory);
+  legacy.manage({ action: "contractor", id: "alex", name: "Alex", handle: worker.provider_key, chat_uid: group.uid, timezone: "UTC", rate_cents: 2000 }, "pre-upgrade");
+  legacy.close();
+  const { DatabaseSync } = await import("node:sqlite");
+  const raw = new DatabaseSync(`${directory}/hours.sqlite`);
+  raw.exec("DROP TABLE group_welcomes");
+  raw.close();
+  const upgraded = new HoursLedger(directory);
+  t.after(() => upgraded.close());
+  upgraded.manage({ action: "deactivate", contractor_id: "alex", reason: "Re-registering" }, "deactivate");
+  upgraded.manage({ action: "contractor", id: "alex-2", name: "Alex", handle: "alex.two@example.test", chat_uid: group.uid, timezone: "UTC", rate_cents: 2000 }, "new-registration");
+  assert.equal(upgraded.claimWelcome(group.uid, "Dane"), undefined);
+  assert.equal(upgraded.welcomeState(group.uid), "existing");
+});
