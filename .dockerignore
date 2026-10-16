@@ -8,3 +8,5 @@ tests
 *.log
 .DS_Store
 .cache
+.env
+.env.*

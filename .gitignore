@@ -5,3 +5,5 @@
 work/
 /evidence/
 /.cache/
+.env
+.env.*
