@@ -22,30 +22,13 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { dockerEnv, pinnedBase } from "./harness-lib.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 const keep = args.includes("--keep");
 const typecheck = !args.includes("--no-typecheck");
 const selected = args.filter(arg => !arg.startsWith("--"));
-
-export function pinnedBase(dockerfile) {
-  const from = dockerfile.split("\n").find(line => line.startsWith("FROM "));
-  const match = from?.match(/plow-cloud-agents:base-([0-9a-f]{40})@sha256:[0-9a-f]{64}\s*$/);
-  if (!match) throw new Error("The Dockerfile must pin the base as plow-cloud-agents:base-<sha>@sha256:<digest>");
-  return match[1];
-}
-
-// ENV lines as Docker reads them: KEY=value or KEY="value with spaces".
-export function dockerEnv(dockerfile) {
-  const env = {};
-  for (const line of dockerfile.split("\n").filter(line => line.startsWith("ENV "))) {
-    for (const [, key, quoted, bare] of line.slice(4).matchAll(/([A-Z_][A-Z0-9_]*)=(?:"((?:[^"\\]|\\.)*)"|(\S*))/g)) {
-      env[key] = quoted ?? bare;
-    }
-  }
-  return env;
-}
 
 function git(cwd, ...argv) {
   return execFileSync("git", argv, { cwd, stdio: ["ignore", "pipe", "inherit"], maxBuffer: 1 << 30 });

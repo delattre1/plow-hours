@@ -4,8 +4,8 @@ import { z } from "zod";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { resolveStorePath, updateLastRoute } from "openclaw/plugin-sdk/session-store-runtime";
 import entry from "./ours-entry.ts";
-import { HoursLedger, hoursLedger } from "../plugin/hours.ts";
-import { clearOwnerAnswer, ownerAnswerIsPrivate, ownerAnswerWasSent, findContractorGroups, ownerPrivateConversation } from "../plugin/hours-channel.ts";
+import { HoursLedger, hoursLedger, sameHandle } from "../plugin/hours.ts";
+import { clearOwnerAnswer, ownerAnswerIsPrivate, ownerAnswerWasSent, findContractorGroups, hoursGroup, ownerPrivateConversation } from "../plugin/hours-channel.ts";
 import { DeliveryUnknownError, HttpError } from "../plugin/transport.ts";
 import { websocketFixture } from "./ws-fixture.ts";
 
@@ -646,4 +646,22 @@ test("contractors registered before the welcome existed are never welcomed after
     .parse(await ownerTools()("plow_hours").execute("after-upgrade", { action: "contractor", id: "alex", name: "Alex", handle: worker.provider_key, chat_uid: group.uid, timezone: "America/New_York", rate_cents: 2600 }));
   assert.deepEqual(posts, [], "An upgraded volume never welcomes a contractor it already had");
   assert.equal(hoursLedger().report("alex")[0]?.contractor.rate_cents, 2600, "The update itself still applies");
+});
+
+test("a roster member without a handle matches no one: owner and contractor checks refuse instead of crashing", async t => {
+  await websocketFixture(t);
+  assert.equal(sameHandle(" +1 (555) 000-0001 ", "+15550000001"), true);
+  assert.equal(sameHandle("Alex@Example.test", "alex@example.test"), true);
+  for (const [a, b] of [[null, null], [undefined, "x@example.test"], ["", ""], ["  ", "  "], ["+15550000001", null]] as const) assert.equal(sameHandle(a, b), false);
+  hoursLedger().manage({ action: "contractor", id: "alex", name: "Alex", handle: worker.provider_key, chat_uid: group.uid, timezone: "UTC", rate_cents: 2000 }, "register");
+  const account = { accountId: "chat", apiBase: "http://fixture", lineUid: "line" };
+  const hiddenWorker = { ...worker, provider_key: null };
+  assert.equal(hoursGroup(account, { ...group, participants: [owner, hiddenWorker, self] } as never), undefined,
+    "A contractor group whose worker has no handle is not treated as that contractor's group");
+  const hiddenOwnerGroup = { ...group, participants: [{ ...owner, provider_key: null }, worker, self] };
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    if (url.endsWith(group.uid)) return Response.json(hiddenOwnerGroup);
+    assert.fail("Unexpected provider request: " + url);
+  });
+  await assert.rejects(() => ownerPrivateConversation(account, hiddenOwnerGroup as never, { sender: owner } as never), /not the verified owner/);
 });
