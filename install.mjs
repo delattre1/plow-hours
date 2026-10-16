@@ -280,9 +280,9 @@ transport=replaceOnce(transport,'  if (!response.ok) throw new HttpError(respons
     }
     throw new HttpError(response.status, providerError);
   }`);
-transport='import { z } from "zod";\nimport { hoursEnabled, hoursLedger, sameHandle } from "./hours.ts";\nimport { flushHoursNotices } from "./hours-notifications.ts";\n'+transport;
+transport='import { z } from "zod";\nimport { hoursEnabled, hoursLedger, sameHandle } from "./hours.ts";\nimport { flushHoursNotices } from "./hours-notifications.ts";\nimport { runHoursSchedule } from "./hours-schedule.ts";\n'+transport;
 transport=replaceOnce(transport,'      const listing = await request<Page<Chat>>(account, "/chats");','      await flushHoursNotices(account).catch(() => log("Ours owner alert is pending; delivery will retry."));\n      const listing = await request<Page<Chat>>(account, "/chats");');
-transport=replaceOnce(transport,'      heartbeat = setInterval(() => {','      heartbeat = setInterval(() => {\n        void flushHoursNotices(account).catch(() => log("Ours owner alert is pending; delivery will retry."));');
+transport=replaceOnce(transport,'      heartbeat = setInterval(() => {','      heartbeat = setInterval(() => {\n        void flushHoursNotices(account).catch(() => log("Ours owner alert is pending; delivery will retry."));\n        void runHoursSchedule(account).catch(error => log(`Ours scheduled check failed: ${error instanceof Error ? error.message : String(error)}`));');
 const dispatch='  const dispatchTurn = async (items: Queued[], onSubmitted: () => void) => {';
 transport=replaceOnce(transport,dispatch,dispatch+`\n    const hoursTurn = hoursEnabled() && account.accountId === "chat" && !!hoursLedger().groupContractor(items[0].chatUid);`);
 // A contractor's clock messages are never merged into one turn: each keeps its own uid, timestamp and recovery record.
@@ -336,6 +336,7 @@ for (const [source,destination] of [
   [plugin+'/hours-reply.ts',plugin+'/dist/hours-reply.js'],
   [plugin+'/hours-attention.ts',plugin+'/dist/hours-attention.js'],
   [plugin+'/hours-notifications.ts',plugin+'/dist/hours-notifications.js'],
+  [plugin+'/hours-schedule.ts',plugin+'/dist/hours-schedule.js'],
   [plugin+'/hours-web.ts',plugin+'/dist/hours-web.js'],
   ['/opt/plow/boot/config.ts','/opt/plow/boot/config.js'],
   ['/opt/plow/boot/ours-config.ts','/opt/plow/boot/ours-config.js'],

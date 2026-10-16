@@ -219,13 +219,26 @@ scoped to that person. Generic shell and filesystem tools are disabled. The
 agent reads its fixed [operating instructions](skill/SKILL.md) through the guide
 action instead of editing records directly.
 
-Time tracking and the web view need neither a connected Mac nor Google Sheets.
-Optional Sheets and wiki projections use the owner's Mac through
-[Latch](https://github.com/plow-pbc/latch), with a write and readback before a
-projection is marked current. Sheets API creation is not included; it needs
-backend OAuth permissions outside this repository. Work exports preserve the
-recorded descriptions. Structured invoice and payment profiles are stored
-separately from work entries.
+Time tracking and the web view need no Mac. Download a contractor's timesheet as
+TSV from the dashboard; exports keep the recorded descriptions. Structured invoice
+and payment profiles are stored separately from work entries.
+
+### On its own, every day
+
+Ours also writes without being asked, straight from the ledger and with no model
+call, so the numbers are always the recorded ones:
+
+- **A nudge for a forgotten clock.** When a contractor's clock has run for ten hours,
+  Ours asks in their group whether they're still working, between 8:00 and 21:00 their
+  time. One nudge per session.
+- **An evening summary for you.** At 19:00, your DM gets today's hours and value per
+  contractor, clocks still running, and anything waiting on you: a long session to
+  review, a finish without a start, an invoice ready for review. Days with nothing to
+  report send nothing. Say "stop the daily summary" to turn it off, or ask to move it to
+  your time zone.
+
+Each message is recorded before it is sent and never repeated, even after a restart
+or a failed delivery. `PLOW_HOURS_PROACTIVE=0` in the container turns both off.
 
 ## Install
 
@@ -237,9 +250,8 @@ One tap, nothing to host:
 3. Plow starts your own Ours on its own line. Text that line to add your first
    contractor, and ask for the dashboard in the same private conversation.
 
-No Mac app is needed: time tracking, the ledger and the timesheet all run in the
-hosted agent. Your Mac and [Latch](https://plow.co/download/latch) only matter for the
-optional Google Sheets and wiki copies.
+No Mac app is needed: time tracking, the ledger, the timesheet and the daily summary
+all run in the hosted agent.
 
 ### Run locally
 
@@ -315,8 +327,11 @@ no off-host destination is configured automatically. Set
   boot it. Another account needs a fresh volume.
 - **Backups stay on the host.** Encrypted daily snapshots are local. Copying them
   off the host is up to you.
-- **Sheets are projections.** Creating a Google Sheet through the Sheets API is not
-  included. The Sheets and wiki copies need the owner's Mac through Latch.
+- **No spreadsheet sync.** Download the TSV from the dashboard. Earlier versions
+  offered Sheets and wiki copies through the owner's Mac, but owner turns in this
+  version can't reach Latch tools, so that path was unreachable and is no longer offered.
+- **Proactive timing is fixed.** The clock nudge comes after ten hours of an open clock;
+  the summary comes at 19:00 in its time zone (São Paulo unless you move it).
 - **USD rates, no conversion.** Hourly rates and recorded values are in US dollars.
   A Brazilian invoice in reais is checked against the BRL amount you set when closing
   the period; Ours does not convert currencies.

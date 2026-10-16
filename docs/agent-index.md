@@ -20,9 +20,12 @@ the one-tap listing.
 
 ## Fields to check on the next release
 
-- **Tools.** The listing names only Plow Chat, with `latch: optional`. If the Sheets
-  and wiki copies stay, add Plow Latch with what it reaches: "Optional: copies the
-  timesheet to Google Sheets and a wiki on your Mac." Otherwise set `latch: none`.
+- **Latch.** Set `latch: none`. Ours never reaches the Mac: owner turns may use only
+  the hours, thread and reply tools, so the old Sheets and wiki copies were unreachable
+  and are no longer offered. The tools field stays Plow Chat only.
+- **Capabilities.** Exactly four. Consider replacing "Live timesheet" with the
+  proactive loop, which is new and is the daily reason to open the chat:
+  "Evening summary: today's hours, open clocks and what needs you, in your DM".
 - **Install URL.** It points at `#run-locally`, the developer path. With 1-click
   deploy enabled, point it at `#install`, which now leads with the one-tap flow.
 - **Stories.** The three stories describe features. The strongest Index stories
