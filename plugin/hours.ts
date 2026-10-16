@@ -917,6 +917,11 @@ export class HoursLedger {
       const stops = this.unmatchedStops(contractor.id);
       return {
         contractor, demands, entries, total_hours: hours(duration), open_entry: active ?? null,
+        // Spelled out so "no open clock" is never read as "never clocked in" (#32).
+        voided_entries: entries.filter(e => e.voided).map(e => ({ entry_id: e.id, start: localTime(e.start_ms, e.timezone),
+          finish: e.end_ms === null ? null : localTime(e.end_ms, e.timezone),
+          reason: z.string().nullable().parse(this.db.prepare("SELECT json_extract(after_json, '$.reason') AS reason FROM audit WHERE action='void' AND json_extract(after_json, '$.entry_id')=? ORDER BY seq DESC LIMIT 1").get(e.id)?.reason ?? null),
+          restore: `plow_hours correct with entry_id ${e.id} and restore=true, optionally with the right start` })),
         review_needed: entries.filter(needsReview).map(e => e.id),
         pending_clock: { start: this.pendingStart(contractor.id)?.source.created_at ?? null, timezone: this.pendingStart(contractor.id)?.timezone ?? null, unmatched_stops: stops.length, messages: this.pendingClockMessagesForContractor(contractor.id).length,
           stops: stops.map(stop => ({ message_uid: stop.message.message_uid, created_at: stop.message.created_at,
